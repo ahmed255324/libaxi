@@ -1,0 +1,6 @@
+*.log
+configure
+autom4te.cache/
+.deps/*
+.libs/*
+
