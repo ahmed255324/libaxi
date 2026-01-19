@@ -1,0 +1,10 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: libaxi
+Description: AXI utility library
+Version: @PACKAGE_VERSION@
+Libs: -L${libdir} -laxi
+Cflags: -I${includedir}
