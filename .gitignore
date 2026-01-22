@@ -1,5 +1,6 @@
 *.log
 configure
+configure~
 autom4te.cache/
 .deps/*
 .libs/*
@@ -18,3 +19,4 @@ libtool
 src/.deps/*
 src/.libs/*
 stamp-h1
+

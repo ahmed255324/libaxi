@@ -10,13 +10,12 @@ AC_CONFIG_AUX_DIR([build-aux])
 
 AM_INIT_AUTOMAKE([foreign -Wall])
 AM_PROG_AR
-LT_INIT
+LT_INIT([shared])
 
-AC_CONFIG_FILES([Makefile src/Makefile libaxi.pc])
+AC_CONFIG_FILES([Makefile])
 
 # Checks for programs.
 AC_PROG_CC
-AC_PROG_INSTALL
 AC_PROG_LIBTOOL
 # Checks for libraries.
 
