@@ -12,7 +12,7 @@ AM_INIT_AUTOMAKE([foreign -Wall])
 AM_PROG_AR
 LT_INIT([shared])
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile libaxi.pc])
 
 # Checks for programs.
 AC_PROG_CC
