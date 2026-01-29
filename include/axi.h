@@ -21,6 +21,7 @@
 
 struct axi_driver {
 	char *device_desc;
+	char *firmware_path;
 
 	int (*write)(struct axi_driver *low, uint8_t *buf, int size,
 		     uint32_t *bytes_written);

@@ -22,7 +22,7 @@ static int axi_read(struct axi_driver *low, uint8_t *buf,
 			    unsigned int size, uint32_t *bytes_read)
 {
 
-	printf("read from axi is done know");
+	printf("read from axi is done now\n");
 	// int retval;
 	// int timeout = 100;
 	// struct ftdi_context *ftdic = ublast_getftdic(low);
@@ -45,7 +45,7 @@ static int axi_read(struct axi_driver *low, uint8_t *buf,
 static int axi_write(struct axi_driver *low, uint8_t *buf, int size,
 			     uint32_t *bytes_written)
 {
-	printf("write to axi is done know");
+	printf("write to axi is done now\n");
 	// int retval;
 	// struct ftdi_context *ftdic = ublast_getftdic(low);
 // 
@@ -62,7 +62,7 @@ static int axi_write(struct axi_driver *low, uint8_t *buf, int size,
 
 static int axi_init(struct axi_driver *low)
 {
-	printf("init axi");
+	printf("init axi\n");
 	/*
 	uint8_t latency_timer;
 	struct ftdi_context *ftdic = ublast_getftdic(low);
@@ -102,7 +102,7 @@ static int axi_quit(struct axi_driver *low)
 	// 
 	// ftdi_usb_close(ftdic);
 	// ftdi_deinit(ftdic);
-	printf("quiting axi know");
+	printf("quiting axi now\n");
 	return ERROR_OK;
 };
 
