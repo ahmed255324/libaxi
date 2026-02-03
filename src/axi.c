@@ -407,10 +407,8 @@ static int axi_init(struct axi_driver *low)
 
 static int axi_quit(struct axi_driver *low)
 {
-	// struct ftdi_context *ftdic = ublast_getftdic(low);
-	// 
-	// ftdi_usb_close(ftdic);
-	// ftdi_deinit(ftdic);
+
+	
 	printf("quiting axi now\n");
 	return ERROR_OK;
 };

@@ -20,3 +20,7 @@ src/.deps/*
 src/.libs/*
 stamp-h1
 
+
+.cache/*
+compile_commands.json
+

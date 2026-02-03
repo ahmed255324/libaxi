@@ -1,6 +1,6 @@
 lib_LTLIBRARIES = libaxi.la
 
-libaxi_la_SOURCES = src/axi.c
+libaxi_la_SOURCES = src/axi.c src/deploy.c
 
 libaxi_la_CPPFLAGS = -I$(top_srcdir)/include
 
