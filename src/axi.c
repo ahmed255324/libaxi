@@ -336,7 +336,7 @@ static int axi_write(struct axi_driver *low, uint8_t *buf, int size,
 
 static int axi_init(struct axi_driver *low)
 {
-	printf("init axi new\n");
+	printf("init axi new test\n");
 
 	int dma_base 	= 0x40000000;
 	int base_src 	= 0x0e000000;
