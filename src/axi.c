@@ -393,118 +393,6 @@ static int axi_quit(struct axi_driver *low)
     return 0;
 }
 
-/* ---------- NEW HELPERS ---------- */
-
-/* IOC enable bit in control register (same bit position as IOC status flag = 0x1000) */
-#ifndef DMA_CTRL_IOC_EN
-#define DMA_CTRL_IOC_EN  STATUS_IOC_IRQ
-#endif
-
-static int dma_wait_ioc_idle(volatile uint32_t *regs, int stat_reg, const char *who)
-{
-    uint32_t t0 = now_ms();
-    uint32_t last_hb = t0;
-
-    while (1) {
-        uint32_t st = R(regs, stat_reg);
-
-        if (dma_has_err(st)) {
-            AXI_LOG("[AXI][ERROR] %s error while waiting IOC+IDLE\n", who);
-            dma_decode_status(who, st);
-            return -EIO;
-        }
-
-        /* complete when BOTH IOC and IDLE are set */
-        if ((st & STATUS_IOC_IRQ) && (st & IDLE_FLAG)) {
-            AXI_LOG("[AXI] %s done (IOC=1, IDLE=1)\n", who);
-            dma_decode_status(who, st);
-            return 0;
-        }
-
-        uint32_t t = now_ms();
-        if (t - last_hb >= AXI_HEARTBEAT_MS) {
-            last_hb = t;
-            AXI_LOG("[AXI] %s wait... STAT=%08X (need IOC+IDLE)\n", who, st);
-            dma_decode_status(who, st);
-        }
-
-        if (t - t0 > AXI_TIMEOUT_MS) {
-            AXI_LOG("[AXI][ERROR] %s timeout waiting IOC+IDLE. Last STAT=%08X\n", who, st);
-            dma_decode_status(who, st);
-            return -ETIMEDOUT;
-        }
-    }
-}
-
-static void dma_stop_channel(volatile uint32_t *regs, int ctrl_reg, const char *who)
-{
-    (void)who;
-    /* Step 2: RUN/STOP bit = 0 */
-    W_LOG(regs, ctrl_reg, 0x00000000u, "STOP channel (RUN=0)");
-}
-
-static void dma_enable_ioc_channel(volatile uint32_t *regs, int ctrl_reg, const char *who)
-{
-    (void)who;
-    /* Step 3: IOC enable (only). If you want all IRQs, use ENABLE_ALL_IRQ instead. */
-    W_LOG(regs, ctrl_reg, DMA_CTRL_IOC_EN, "Enable IOC IRQ");
-}
-
-static void dma_run_channel(volatile uint32_t *regs, int ctrl_reg, const char *who)
-{
-    (void)who;
-    /* Step 6/7: RUN=1 + IOC IRQ enable */
-    W_LOG(regs, ctrl_reg, (RUN_DMA | DMA_CTRL_IOC_EN), "RUN channel + IOC IRQ");
-}
-
-/* MM2S-only transfer helper (used by axi_write for normal command TX) */
-static int axi_mm2s_transfer(struct axi_dma_ctx *ctx, const uint8_t *buf, uint32_t size)
-{
-    if (!ctx || !ctx->regs || !ctx->tx) return -ENODEV;
-    if (size == 0) return 0;
-    if ((size_t)size > ctx->buf_size) return -EMSGSIZE;
-
-    dma_dump_regs(ctx->regs, "mm2s_before");
-
-    /* 1) Reset MM2S */
-    int rc = dma_reset_channel(ctx->regs, MM2S_CONTROL_REGISTER, MM2S_STATUS_REGISTER, "MM2S");
-    if (rc < 0) return rc;
-
-    /* 2) Stop MM2S */
-    dma_stop_channel(ctx->regs, MM2S_CONTROL_REGISTER, "MM2S");
-
-    /* 3) Enable IOC */
-    dma_enable_ioc_channel(ctx->regs, MM2S_CONTROL_REGISTER, "MM2S");
-
-    /* clear MM2S IRQs before start */
-    W_LOG(ctx->regs, MM2S_STATUS_REGISTER, DMA_IRQ_W1C_MASK, "MM2S W1C clear IRQ");
-
-    /* 4) Source address */
-    memcpy((void*)ctx->tx, buf, (size_t)size);
-    W_LOG(ctx->regs, MM2S_SRC_ADDRESS_REGISTER, ctx->tx_phys, "MM2S SRC");
-
-    /* 6) Run MM2S */
-    dma_run_channel(ctx->regs, MM2S_CONTROL_REGISTER, "MM2S");
-
-    /* 8) MM2S transfer length starts the transfer */
-    W_LOG(ctx->regs, MM2S_TRNSFR_LENGTH_REGISTER, size, "MM2S LENGTH=start");
-
-    dma_dump_regs(ctx->regs, "mm2s_after_start");
-
-    /* 10) Wait IOC + IDLE */
-    rc = dma_wait_ioc_idle(ctx->regs, MM2S_STATUS_REGISTER, "MM2S");
-    if (rc < 0) {
-        AXI_LOG("[AXI][ERROR] MM2S failed rc=%d\n", rc);
-        dma_dump_regs(ctx->regs, "mm2s_failed");
-        return rc;
-    }
-
-    /* optional: clear IOC for next transfer */
-    W_LOG(ctx->regs, MM2S_STATUS_REGISTER, DMA_IRQ_W1C_MASK, "MM2S W1C clear IRQ post");
-
-    return 0;
-}
-
 static int axi_write(struct axi_driver *low, uint8_t *buf, int size, uint32_t *bytes_written)
 {
     if (bytes_written) *bytes_written = 0;
@@ -516,15 +404,26 @@ static int axi_write(struct axi_driver *low, uint8_t *buf, int size, uint32_t *b
 
     AXI_LOG("\n[AXI] axi_write(size=%d)\n", size);
     dump_hex_limited("TX payload", buf, (size_t)size);
+    dma_dump_regs(ctx->regs, "mm2s_before");
 
-    int rc = axi_mm2s_transfer(ctx, buf, (uint32_t)size);
-    if (rc < 0)
+    dma_ensure_run(ctx->regs, MM2S_CONTROL_REGISTER, MM2S_STATUS_REGISTER, "MM2S");
+
+    W_LOG(ctx->regs, MM2S_STATUS_REGISTER, DMA_IRQ_W1C_MASK, "MM2S W1C clear IRQ");
+    memcpy((void*)ctx->tx, buf, (size_t)size);
+
+    W_LOG(ctx->regs, MM2S_SRC_ADDRESS_REGISTER, ctx->tx_phys, "MM2S SRC");
+    W_LOG(ctx->regs, MM2S_TRNSFR_LENGTH_REGISTER, (uint32_t)size, "MM2S LENGTH=start");
+    dma_dump_regs(ctx->regs, "mm2s_after_start");
+
+    int rc = dma_wait_idle(ctx->regs, MM2S_STATUS_REGISTER, "MM2S");
+    if (rc < 0) {
+        AXI_LOG("[AXI][ERROR] MM2S failed rc=%d\n", rc);
+        dma_dump_regs(ctx->regs, "mm2s_failed");
         return rc;
+    }
 
-    if (bytes_written)
-        *bytes_written = (uint32_t)size;
-
-    AXI_LOG("[AXI] axi_write OK wrote=%u\n", (unsigned)(bytes_written ? *bytes_written : (uint32_t)size));
+    if (bytes_written) *bytes_written = (uint32_t)size;
+    AXI_LOG("[AXI] axi_write OK wrote=%u\n", (unsigned)*bytes_written);
     return 0;
 }
 
@@ -534,96 +433,52 @@ static int axi_read(struct axi_driver *low, uint8_t *buf, unsigned size, uint32_
     if (!low || !buf) return -EINVAL;
 
     struct axi_dma_ctx *ctx = CTX(low);
-    if (!ctx->regs || !ctx->rx || !ctx->tx) return -ENODEV;
+    if (!ctx->regs || !ctx->rx) return -ENODEV;
     if ((size_t)size > ctx->buf_size) return -EMSGSIZE;
 
     AXI_LOG("\n[AXI] axi_read(size=%u)\n", (unsigned)size);
-    dma_dump_regs(ctx->regs, "read_before");
+    dma_dump_regs(ctx->regs, "s2mm_before");
 
-    /* local flush command (DO NOT pass ctx->flush directly as pointer) */
-
-    /* Optional: RX buffer clear for cleaner debug logs */
-    memset((void*)ctx->rx, 0, (size_t)size);
-
-    /* Put FLUSH byte in MM2S source buffer */
-    ctx->tx = ctx->flush;
-
-    /* ------------------------------------------------------------------
-     * Follow sequence (with one practical tweak: arm S2MM length before MM2S flush length)
-     * ------------------------------------------------------------------ */
-
-    /* 1) Reset both channels */
-    int rc = dma_reset_channel(ctx->regs, MM2S_CONTROL_REGISTER, MM2S_STATUS_REGISTER, "MM2S");
-    if (rc < 0) return rc;
-    rc = dma_reset_channel(ctx->regs, S2MM_CONTROL_REGISTER, S2MM_STATUS_REGISTER, "S2MM");
-    if (rc < 0) return rc;
-
-    /* 2) Stop both channels (RUN=0) */
-    dma_stop_channel(ctx->regs, MM2S_CONTROL_REGISTER, "MM2S");
-    dma_stop_channel(ctx->regs, S2MM_CONTROL_REGISTER, "S2MM");
-
-    /* 3) Enable IOC on both channels */
-    dma_enable_ioc_channel(ctx->regs, MM2S_CONTROL_REGISTER, "MM2S");
-    dma_enable_ioc_channel(ctx->regs, S2MM_CONTROL_REGISTER, "S2MM");
-
-    /* Clear pending IRQ flags before starting */
-    W_LOG(ctx->regs, MM2S_STATUS_REGISTER, DMA_IRQ_W1C_MASK, "MM2S W1C clear IRQ");
+    /* IRQs clear */
     W_LOG(ctx->regs, S2MM_STATUS_REGISTER, DMA_IRQ_W1C_MASK, "S2MM W1C clear IRQ");
 
-    /* 4) MM2S source addr -> tx buffer (flush byte) */
-    W_LOG(ctx->regs, MM2S_SRC_ADDRESS_REGISTER, ctx->tx_phys, "MM2S SRC (flush)");
+    /* optional: RX buffer leeren für Debug (hilft gegen alte Daten im Log) */
+    memset((void *)ctx->rx, 0, (size_t)size);
 
-    /* 5) S2MM destination addr -> rx buffer */
+    /* S2MM armed */
     W_LOG(ctx->regs, S2MM_DST_ADDRESS_REGISTER, ctx->rx_phys, "S2MM DST");
+    W_LOG(ctx->regs, S2MM_BUFF_LENGTH_REGISTER, (uint32_t)size, "S2MM LENGTH=start");
+    dma_dump_regs(ctx->regs, "s2mm_after_start");
 
-    /*
-     * 9) Arm S2MM FIRST (important in your design, so response is not lost)
-     *    Yes, this swaps steps 8/9 intentionally for reliability with FLUSH-triggered response.
-     */
-    W_LOG(ctx->regs, S2MM_BUFF_LENGTH_REGISTER, (uint32_t)size, "S2MM LENGTH=start (arm receive)");
+    dma_ensure_run(ctx->regs, S2MM_CONTROL_REGISTER, S2MM_STATUS_REGISTER, "S2MM");
 
-    /*
-     * 8) Start MM2S by writing transfer length for FLUSH byte (1 byte)
-     *    This sends command 0x09 to serializer to trigger draining the TX->RX response FIFO.
-     */
-    W_LOG(ctx->regs, MM2S_TRNSFR_LENGTH_REGISTER, 4, "MM2S LENGTH=start (send FLUSH)");    
-
-    /* 7) Run S2MM */
-    dma_run_channel(ctx->regs, S2MM_CONTROL_REGISTER, "S2MM");
-
-    /* 6) Run MM2S */
-    dma_run_channel(ctx->regs, MM2S_CONTROL_REGISTER, "MM2S");
-
-    dma_dump_regs(ctx->regs, "read_after_start");
-
-    /* 10) Wait for BOTH channels: IOC + IDLE */
-    rc = dma_wait_ioc_idle(ctx->regs, MM2S_STATUS_REGISTER, "MM2S");
+    int rc;
+    /* 2) Jetzt erst FLUSH senden (MM2S) */
+    uint32_t bw = 0;
+    rc = axi_write(low, ctx->flush, 4, &bw);
     if (rc < 0) {
-        AXI_LOG("[AXI][ERROR] MM2S (flush) failed rc=%d\n", rc);
-        dma_dump_regs(ctx->regs, "read_mm2s_failed");
+        AXI_LOG("[AXI][ERROR] flush write failed rc=%d\n", rc);
         return rc;
     }
+    if (bw != 4) {
+        AXI_LOG("[AXI][ERROR] flush write short bw=%u\n", (unsigned)bw);
+        return -EIO;
+    }
 
-    rc = dma_wait_ioc_idle(ctx->regs, S2MM_STATUS_REGISTER, "S2MM");
+    /* 3) Auf S2MM Ende warten */
+    rc = dma_wait_idle(ctx->regs, S2MM_STATUS_REGISTER, "S2MM");
     if (rc < 0) {
         AXI_LOG("[AXI][ERROR] S2MM failed rc=%d\n", rc);
-        dma_dump_regs(ctx->regs, "read_s2mm_failed");
+        dma_dump_regs(ctx->regs, "s2mm_failed");
         return rc;
     }
 
-    /* Clear IRQ flags post transfer (optional but clean) */
-    W_LOG(ctx->regs, MM2S_STATUS_REGISTER, DMA_IRQ_W1C_MASK, "MM2S W1C clear IRQ post");
-    W_LOG(ctx->regs, S2MM_STATUS_REGISTER, DMA_IRQ_W1C_MASK, "S2MM W1C clear IRQ post");
-
-    /*
-     * Actual length:
-     * On standard AXI DMA simple mode this register is usually the programmed length,
-     * not always "actual received". If on your system it reflects actual, keep it.
-     * Otherwise, fallback to requested size.
-     */
+    /* 4) Tatsächliche empfangene Länge lesen (bei dir zeigt das Register realen Wert) */
     uint32_t actual = R(ctx->regs, S2MM_BUFF_LENGTH_REGISTER);
-    if (actual == 0 || actual > size) {
-        AXI_LOG("[AXI][WARN] S2MM_BUFF_LENGTH readback=%u, fallback to requested=%u\n",
+
+    /* Schutz */
+    if (actual > size) {
+        AXI_LOG("[AXI][WARN] S2MM actual=%u > requested=%u, clamp\n",
                 (unsigned)actual, (unsigned)size);
         actual = size;
     }
@@ -632,7 +487,6 @@ static int axi_read(struct axi_driver *low, uint8_t *buf, unsigned size, uint32_
     dump_hex_limited("RX payload", buf, (size_t)actual);
 
     if (bytes_read) *bytes_read = actual;
-
     AXI_LOG("[AXI] axi_read OK read=%u (requested=%u)\n",
             (unsigned)actual, (unsigned)size);
     return 0;
