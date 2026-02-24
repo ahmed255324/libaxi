@@ -31,3 +31,22 @@
 #define ENABLE_DELAY_IRQ            0x00002000
 #define ENABLE_ERR_IRQ              0x00004000
 #define ENABLE_ALL_IRQ              0x00007000
+
+#ifndef AXI_TRACE
+#define AXI_TRACE 1
+#endif
+
+/* timeout per transfer in ms */
+#define AXI_TIMEOUT_MS 5
+
+/* heartbeat log interval during waits */
+#define AXI_HEARTBEAT_MS 1
+
+/* physical addresses (adjust to your system) */
+
+#define AXI_DMA_BASE_PHYS 0x40400000u
+#define DMA_MAP_SIZE 0x10000u
+#define TX_BUF_PHYS 0x0E000000u
+#define RX_BUF_PHYS 0x0F000000u
+#define BUF_MAP_SIZE 0x10000u
+#define DMA_IRQ_W1C_MASK (STATUS_IOC_IRQ | STATUS_DELAY_IRQ | STATUS_ERR_IRQ)

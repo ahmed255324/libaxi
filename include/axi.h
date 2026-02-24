@@ -35,6 +35,10 @@ struct axi_driver {
 };
 
 
+void startdma(void);
+void stopdma(void);
+
+
 extern struct axi_driver *axi_driver_register(void);
 
 #endif /* AXI_H */
