@@ -33,7 +33,7 @@
 #define ENABLE_ALL_IRQ              0x00007000
 
 #ifndef AXI_TRACE
-#define AXI_TRACE 1
+#define AXI_TRACE 0
 #endif
 
 /* timeout per transfer in ms */

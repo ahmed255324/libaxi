@@ -406,14 +406,14 @@ static int axi_write(struct axi_driver *low, uint8_t *buf, int size, uint32_t *b
     dump_hex_limited("TX payload", buf, (size_t)size);
     dma_dump_regs(ctx->regs, "mm2s_before");
 
-    dma_ensure_run(ctx->regs, MM2S_CONTROL_REGISTER, MM2S_STATUS_REGISTER, "MM2S");
-
     W_LOG(ctx->regs, MM2S_STATUS_REGISTER, DMA_IRQ_W1C_MASK, "MM2S W1C clear IRQ");
     memcpy((void*)ctx->tx, buf, (size_t)size);
 
     W_LOG(ctx->regs, MM2S_SRC_ADDRESS_REGISTER, ctx->tx_phys, "MM2S SRC");
     W_LOG(ctx->regs, MM2S_TRNSFR_LENGTH_REGISTER, (uint32_t)size, "MM2S LENGTH=start");
     dma_dump_regs(ctx->regs, "mm2s_after_start");
+
+    dma_ensure_run(ctx->regs, MM2S_CONTROL_REGISTER, MM2S_STATUS_REGISTER, "MM2S");
 
     int rc = dma_wait_idle(ctx->regs, MM2S_STATUS_REGISTER, "MM2S");
     if (rc < 0) {
@@ -452,6 +452,7 @@ static int axi_read(struct axi_driver *low, uint8_t *buf, unsigned size, uint32_
 
     dma_ensure_run(ctx->regs, S2MM_CONTROL_REGISTER, S2MM_STATUS_REGISTER, "S2MM");
 
+    AXI_LOG("----------------------------flushstart--------------------");
     int rc;
     /* 2) Jetzt erst FLUSH senden (MM2S) */
     uint32_t bw = 0;
@@ -464,6 +465,7 @@ static int axi_read(struct axi_driver *low, uint8_t *buf, unsigned size, uint32_
         AXI_LOG("[AXI][ERROR] flush write short bw=%u\n", (unsigned)bw);
         return -EIO;
     }
+    AXI_LOG("----------------------------flushends---------------------");
 
     /* 3) Auf S2MM Ende warten */
     rc = dma_wait_idle(ctx->regs, S2MM_STATUS_REGISTER, "S2MM");
